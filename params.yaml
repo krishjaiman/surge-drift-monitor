@@ -1,0 +1,92 @@
+# ============================================================
+# Surge-Price Drift Monitor — Central Configuration
+# Every tunable parameter for every pipeline stage lives here.
+# Never hardcode thresholds, dates, or feature lists in source.
+# ============================================================
+
+data:
+  # NYC TLC Yellow Taxi trip data, sampled months for fast iteration.
+  # Full training window per project spec is Jan 2022 - Dec 2023;
+  # we sample 6 representative months to keep Phase 1 iteration fast.
+  # Swap this list to a full 24-month range later with no code changes.
+  training_months:
+    - "2022-01"   # winter
+    - "2022-04"   # spring
+    - "2022-07"   # summer
+    - "2022-10"   # fall
+    - "2023-01"   # winter, year 2 (year-over-year comparison)
+    - "2023-07"   # summer, year 2 (year-over-year comparison)
+
+  tlc_base_url: "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{month}.parquet"
+  zone_lookup_url: "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv"
+
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  reference_dir: "data/reference"
+
+  # NYC-wide weather (Open-Meteo archive), joined on timestamp only.
+  # Zone-level weather is out of scope for Phase 1 — flagged as a
+  # future enhancement, not needed for a first working model.
+  weather:
+    latitude: 40.7128
+    longitude: -74.0060
+    archive_base_url: "https://archive-api.open-meteo.com/v1/archive"
+    hourly_vars:
+      - "temperature_2m"
+      - "precipitation"
+      - "windspeed_10m"
+
+features:
+  # Target: pickup count per (zone, hour) bucket.
+  target_col: "trip_count"
+
+  time_features:
+    - "hour_of_day"
+    - "day_of_week"
+    - "month"
+    - "is_weekend"
+
+  lag_features:
+    lag_hours: [1, 24, 168]   # 1h, 24h, 1 week
+
+  rolling_features:
+    windows_hours: [3, 24]
+
+  categorical_features:
+    - "zone_id"
+
+  # Minimum trips/hour for a zone to be included — drops near-zero
+  # zones that add noise without meaningful demand signal.
+  min_zone_hourly_volume: 1
+
+split:
+  train_end_date: "2023-05-31"   # last of the sampled months used for training
+  val_start_date: "2023-06-01"
+  val_end_date: "2023-07-31"
+  val_fraction_fallback: 0.2      # used if date-based split leaves too little val data
+
+model:
+  type: "lightgbm"
+  params:
+    objective: "regression"
+    metric: "rmse"
+    num_leaves: 63
+    learning_rate: 0.05
+    n_estimators: 500
+    min_child_samples: 20
+    subsample: 0.8
+    colsample_bytree: 0.8
+    random_state: 42
+  early_stopping_rounds: 30
+
+mlflow:
+  tracking_uri: "http://localhost:5000"
+  experiment_name: "surge-demand-forecast"
+  registered_model_name: "surge-demand-lgbm"
+  champion_alias: "champion"
+  challenger_alias: "challenger"
+
+reference_snapshot:
+  # Percentiles computed per numeric feature for the frozen baseline.
+  percentiles: [1, 5, 25, 50, 75, 95, 99]
+  histogram_bins: 20

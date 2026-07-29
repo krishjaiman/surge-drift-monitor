@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+mlflow.db
+mlflow_smoketest.db
+mlruns/
+metrics/
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/reference/*.json
+!data/reference/.gitkeep
+.pytest_cache/
+.dvc/cache
+.dvc/tmp

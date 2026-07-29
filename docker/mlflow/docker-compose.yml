@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  mlflow:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: surge-mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_data:/mlflow/data
+      - mlflow_artifacts:/mlflow/artifacts
+    restart: unless-stopped
+
+volumes:
+  mlflow_data:
+  mlflow_artifacts:

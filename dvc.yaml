@@ -1,0 +1,46 @@
+stages:
+  ingest:
+    cmd: python -m src.ingestion.download_data
+    deps:
+      - src/ingestion/download_data.py
+    params:
+      - data.training_months
+      - data.tlc_base_url
+      - data.zone_lookup_url
+      - data.weather
+    outs:
+      - data/raw
+
+  build_features:
+    cmd: python -m src.features.build_features
+    deps:
+      - src/features/build_features.py
+      - data/raw
+    params:
+      - features
+    outs:
+      - data/processed/features.parquet
+
+  train:
+    cmd: python -m src.training.train
+    deps:
+      - src/training/train.py
+      - data/processed/features.parquet
+    params:
+      - model
+      - split
+      - mlflow
+    metrics:
+      - metrics/train_metrics.json:
+          cache: false
+
+  reference_snapshot:
+    cmd: python -m src.training.reference_snapshot
+    deps:
+      - src/training/reference_snapshot.py
+      - data/processed/features.parquet
+    params:
+      - reference_snapshot
+      - split
+    outs:
+      - data/reference/reference_snapshot_current.json
