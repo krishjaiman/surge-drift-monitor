@@ -4,7 +4,6 @@ __pycache__/
 mlflow.db
 mlflow_smoketest.db
 mlruns/
-metrics/
 data/raw/*
 !data/raw/.gitkeep
 data/processed/*

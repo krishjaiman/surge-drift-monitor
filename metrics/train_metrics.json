@@ -1,0 +1,7 @@
+{
+  "val_rmse": 7.535748621942521,
+  "val_mae": 2.3291003961201677,
+  "val_zone_rmse_worst": 43.314836487641614,
+  "val_zone_rmse_median": 0.5037586534619213,
+  "best_iteration": 492
+}
