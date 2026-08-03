@@ -1,0 +1,149 @@
+schema: '2.0'
+stages:
+  ingest:
+    cmd: python -m src.ingestion.download_data
+    deps:
+    - path: src/ingestion/download_data.py
+      hash: md5
+      md5: 96db136acd3269f4597caf17159baed3
+      size: 5803
+    params:
+      params.yaml:
+        data.tlc_base_url: 
+          https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{month}.parquet
+        data.training_months:
+        - 2022-01
+        - 2022-04
+        - 2022-07
+        - 2022-10
+        - 2023-01
+        - 2023-07
+        data.weather:
+          latitude: 40.7128
+          longitude: -74.006
+          archive_base_url: https://archive-api.open-meteo.com/v1/archive
+          hourly_vars:
+          - temperature_2m
+          - precipitation
+          - windspeed_10m
+        data.zone_lookup_url: 
+          https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv
+    outs:
+    - path: data/raw
+      hash: md5
+      md5: 265e9e356ddd4ce0c8d8478f27cf77bd.dir
+      size: 296274014
+      nfiles: 8
+  build_features:
+    cmd: python -m src.features.build_features
+    deps:
+    - path: data/raw
+      hash: md5
+      md5: 265e9e356ddd4ce0c8d8478f27cf77bd.dir
+      size: 296274014
+      nfiles: 8
+    - path: src/features/build_features.py
+      hash: md5
+      md5: 9920a7b02a286199f968aef8e4d92a25
+      size: 7991
+    params:
+      params.yaml:
+        features:
+          target_col: trip_count
+          time_features:
+          - hour_of_day
+          - day_of_week
+          - month
+          - is_weekend
+          lag_features:
+            lag_hours:
+            - 1
+            - 24
+            - 168
+          rolling_features:
+            windows_hours:
+            - 3
+            - 24
+          categorical_features:
+          - zone_id
+          min_zone_hourly_volume: 1
+    outs:
+    - path: data/processed/features.parquet
+      hash: md5
+      md5: 32bc7a5b344f50a22c073a0d6579b2f8
+      size: 3892342
+  train:
+    cmd: python -m src.training.train
+    deps:
+    - path: data/processed/features.parquet
+      hash: md5
+      md5: 32bc7a5b344f50a22c073a0d6579b2f8
+      size: 3892342
+    - path: src/training/train.py
+      hash: md5
+      md5: 08bde2f045a68e7295f799115e36c4ec
+      size: 8001
+    params:
+      params.yaml:
+        mlflow:
+          tracking_uri: http://localhost:5000
+          experiment_name: surge-demand-forecast
+          registered_model_name: surge-demand-lgbm
+          champion_alias: champion
+          challenger_alias: challenger
+        model:
+          type: lightgbm
+          params:
+            objective: regression
+            metric: rmse
+            num_leaves: 63
+            learning_rate: 0.05
+            n_estimators: 500
+            min_child_samples: 20
+            subsample: 0.8
+            colsample_bytree: 0.8
+            random_state: 42
+          early_stopping_rounds: 30
+        split:
+          train_end_date: '2023-05-31'
+          val_start_date: '2023-06-01'
+          val_end_date: '2023-07-31'
+          val_fraction_fallback: 0.2
+    outs:
+    - path: metrics/train_metrics.json
+      hash: md5
+      md5: 4ba7db7a343aa1455e72ec4b4670cc4f
+      size: 190
+  reference_snapshot:
+    cmd: python -m src.training.reference_snapshot
+    deps:
+    - path: data/processed/features.parquet
+      hash: md5
+      md5: 32bc7a5b344f50a22c073a0d6579b2f8
+      size: 3892342
+    - path: src/training/reference_snapshot.py
+      hash: md5
+      md5: 1e39ca7d250624256c4ae2b4df1363ea
+      size: 5613
+    params:
+      params.yaml:
+        reference_snapshot:
+          percentiles:
+          - 1
+          - 5
+          - 25
+          - 50
+          - 75
+          - 95
+          - 99
+          histogram_bins: 20
+        split:
+          train_end_date: '2023-05-31'
+          val_start_date: '2023-06-01'
+          val_end_date: '2023-07-31'
+          val_fraction_fallback: 0.2
+    outs:
+    - path: data/reference/reference_snapshot_current.json
+      hash: md5
+      md5: c661561f00366948ae30cacc64a334fd
+      size: 27857
