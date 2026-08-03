@@ -73,14 +73,21 @@ def aggregate_zone_hour_demand(trips: pd.DataFrame, params: dict) -> pd.DataFram
         .reset_index(name="trip_count")
     )
 
-    # Build the full (zone, hour) grid so zones with zero demand in a given
-    # hour appear as trip_count=0 rather than being silently absent — this
-    # matters a lot for a demand model, since "no demand" is a real label.
+    # Build the zero-fill grid from the UNION of each sampled month's own
+    # hour range — NOT a single min-to-max span across all trips combined.
+    # training_months is often non-contiguous (e.g. Jan/Apr/Jul/Oct), and a
+    # naive min-max range would fabricate "zero demand" for every month in
+    # between that was never actually sampled, silently corrupting the
+    # dataset with fake data for months we have no real signal for.
     all_zones = demand["zone_id"].unique()
-    full_range = pd.date_range(
-        demand["hour_ts"].min(), demand["hour_ts"].max(), freq="h"
-    )
-    grid = pd.MultiIndex.from_product([all_zones, full_range], names=["zone_id", "hour_ts"])
+    month_hour_ranges = []
+    for month in params["data"]["training_months"]:
+        month_start = pd.Timestamp(f"{month}-01")
+        month_end = month_start + pd.offsets.MonthEnd(1) + pd.Timedelta(hours=23)
+        month_hour_ranges.append(pd.date_range(month_start, month_end, freq="h"))
+    full_hours = pd.DatetimeIndex(np.concatenate(month_hour_ranges)).unique().sort_values()
+
+    grid = pd.MultiIndex.from_product([all_zones, full_hours], names=["zone_id", "hour_ts"])
     demand = (
         demand.set_index(["zone_id", "hour_ts"])
         .reindex(grid, fill_value=0)
@@ -112,22 +119,32 @@ def add_lag_and_rolling_features(df: pd.DataFrame, params: dict) -> pd.DataFrame
     """
     Add per-zone lag and rolling-mean features on trip_count.
 
+    Grouped by (zone_id, month_block) — not zone_id alone — because
+    training_months can be non-contiguous (e.g. Jan/Apr/Jul/Oct). Grouping
+    by zone_id alone would let `.shift()` pull a "lag" value across a
+    2-month gap (e.g. April 1st's lag_1h silently reading late January's
+    trip_count), which is wrong data dressed up as a real feature. Grouping
+    by month block means each sampled month gets its own short warm-up
+    period at the start (rows dropped later), which is the correct
+    trade-off for non-contiguous sampling.
+
     All lag/rolling values are computed strictly from *past* hours relative
     to the row's own hour_ts, so there is no target leakage — this is what
     makes it valid to also use trip_count-derived features as model inputs.
     """
     df = df.sort_values(["zone_id", "hour_ts"]).copy()
-    grouped = df.groupby("zone_id")["trip_count"]
+    df["_month_block"] = df["hour_ts"].dt.to_period("M").astype(str)
+    group_keys = ["zone_id", "_month_block"]
 
     for lag_h in params["features"]["lag_features"]["lag_hours"]:
-        df[f"lag_{lag_h}h"] = grouped.shift(lag_h)
+        df[f"lag_{lag_h}h"] = df.groupby(group_keys)["trip_count"].shift(lag_h)
 
     for window_h in params["features"]["rolling_features"]["windows_hours"]:
-        df[f"rolling_mean_{window_h}h"] = (
-            grouped.shift(1).rolling(window=window_h, min_periods=1).mean().reset_index(level=0, drop=True)
+        df[f"rolling_mean_{window_h}h"] = df.groupby(group_keys)["trip_count"].transform(
+            lambda s, w=window_h: s.shift(1).rolling(window=w, min_periods=1).mean()
         )
 
-    return df
+    return df.drop(columns=["_month_block"])
 
 
 def add_weather_features(df: pd.DataFrame, params: dict) -> pd.DataFrame:

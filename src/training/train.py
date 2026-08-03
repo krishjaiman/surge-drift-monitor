@@ -144,7 +144,7 @@ def train_model(params_path: str = "params.yaml") -> str:
 
         model_info = mlflow.lightgbm.log_model(
             booster,
-            name="model",
+            artifact_path ="model",
             registered_model_name=params["mlflow"]["registered_model_name"],
         )
 

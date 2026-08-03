@@ -13,3 +13,4 @@ data/reference/*.json
 .pytest_cache/
 .dvc/cache
 .dvc/tmp
+mlflow-artifacts/
