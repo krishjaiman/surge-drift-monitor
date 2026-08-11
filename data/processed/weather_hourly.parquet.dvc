@@ -1,0 +1,5 @@
+outs:
+- md5: 1e1a671e6a45bd59d83478991ae74d6d
+  size: 218441
+  hash: md5
+  path: weather_hourly.parquet

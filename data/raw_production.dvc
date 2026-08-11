@@ -1,0 +1,6 @@
+outs:
+- md5: 9dcb9881ab31663c57e1c0ab89116995.dir
+  size: 351204214
+  nfiles: 8
+  hash: md5
+  path: raw_production

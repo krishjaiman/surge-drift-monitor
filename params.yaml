@@ -16,6 +16,13 @@ data:
     - "2022-10"   # fall
     - "2023-01"   # winter, year 2 (year-over-year comparison)
     - "2023-07"   # summer, year 2 (year-over-year comparison)
+  production_months:
+    - "2024-07"
+    - "2024-08"
+    - "2024-09"
+    - "2024-10"
+    - "2024-11"
+    - "2024-12"
 
   tlc_base_url: "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{month}.parquet"
   zone_lookup_url: "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv"
@@ -35,6 +42,7 @@ data:
       - "temperature_2m"
       - "precipitation"
       - "windspeed_10m"
+  raw_production_dir: "data/raw_production"
 
 features:
   # Target: pickup count per (zone, hour) bucket.
@@ -90,3 +98,19 @@ reference_snapshot:
   # Percentiles computed per numeric feature for the frozen baseline.
   percentiles: [1, 5, 25, 50, 75, 95, 99]
   histogram_bins: 20
+
+serving:
+  model_refresh_interval_seconds: 300
+  historical_store:
+    sqlite_path: "data/serving/demand_history.db"
+  prediction_log:
+    output_dir: "data/predictions"
+    flush_every_n_records: 50
+    flush_interval_seconds: 30
+  seed_source_path: "data/processed/features.parquet"
+  production_source_path: "data/processed/production_features.parquet"
+  weather_cache_path: "data/processed/weather_hourly.parquet"
+  replay:
+    base_url: "http://127.0.0.1:8000"
+    delay_seconds_per_hour: 0
+    progress_log_every_n_hours: 24 
