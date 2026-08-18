@@ -6,6 +6,13 @@ with time, lag, rolling, and weather features. This is the exact feature
 set that both the trainer (Phase 1) and the drift monitor (Phase 3) will
 consume, so every feature added here has a corresponding entry that will
 later show up in the reference distribution snapshot.
+
+load_raw_trips, aggregate_zone_hour_demand, and add_weather_features all
+accept optional `months`/`weather_filename` overrides so this same,
+already-tested logic (including the non-contiguous-month grid-fill and
+lag-leakage fixes) can be reused for the simulated production dataset
+without duplicating it. Calling with no override reproduces the original
+Phase 1 training behavior exactly.
 """
 
 from __future__ import annotations
@@ -26,11 +33,13 @@ def load_params(params_path: str = "params.yaml") -> dict:
         return yaml.safe_load(f)
 
 
-def load_raw_trips(params: dict) -> pd.DataFrame:
-    """Load and concatenate all configured months of raw trip Parquet files."""
+def load_raw_trips(params: dict, months: list[str] | None = None) -> pd.DataFrame:
+    """Load and concatenate the given months of raw trip Parquet files
+    (defaults to training_months)."""
     raw_dir = Path(params["data"]["raw_dir"])
+    target_months = months or params["data"]["training_months"]
     frames = []
-    for month in params["data"]["training_months"]:
+    for month in target_months:
         path = raw_dir / f"yellow_tripdata_{month}.parquet"
         logger.info("Loading %s", path)
         df = pd.read_parquet(
@@ -43,7 +52,7 @@ def load_raw_trips(params: dict) -> pd.DataFrame:
     return trips
 
 
-def aggregate_zone_hour_demand(trips: pd.DataFrame, params: dict) -> pd.DataFrame:
+def aggregate_zone_hour_demand(trips: pd.DataFrame, params: dict, months: list[str] | None = None) -> pd.DataFrame:
     """
     Aggregate raw trips into a (zone_id, hour_timestamp) demand time series.
 
@@ -75,13 +84,14 @@ def aggregate_zone_hour_demand(trips: pd.DataFrame, params: dict) -> pd.DataFram
 
     # Build the zero-fill grid from the UNION of each sampled month's own
     # hour range — NOT a single min-to-max span across all trips combined.
-    # training_months is often non-contiguous (e.g. Jan/Apr/Jul/Oct), and a
+    # target_months is often non-contiguous (e.g. Jan/Apr/Jul/Oct), and a
     # naive min-max range would fabricate "zero demand" for every month in
     # between that was never actually sampled, silently corrupting the
     # dataset with fake data for months we have no real signal for.
+    target_months = months or params["data"]["training_months"]
     all_zones = demand["zone_id"].unique()
     month_hour_ranges = []
-    for month in params["data"]["training_months"]:
+    for month in target_months:
         month_start = pd.Timestamp(f"{month}-01")
         month_end = month_start + pd.offsets.MonthEnd(1) + pd.Timedelta(hours=23)
         month_hour_ranges.append(pd.date_range(month_start, month_end, freq="h"))
@@ -147,9 +157,9 @@ def add_lag_and_rolling_features(df: pd.DataFrame, params: dict) -> pd.DataFrame
     return df.drop(columns=["_month_block"])
 
 
-def add_weather_features(df: pd.DataFrame, params: dict) -> pd.DataFrame:
+def add_weather_features(df: pd.DataFrame, params: dict, weather_filename: str = "weather_hourly.csv") -> pd.DataFrame:
     """Join NYC-wide hourly weather onto the zone-hour demand table."""
-    weather_path = Path(params["data"]["raw_dir"]) / "weather_hourly.csv"
+    weather_path = Path(params["data"]["raw_dir"]) / weather_filename
     weather = pd.read_csv(weather_path, parse_dates=["time"])
     weather = weather.rename(columns={"time": "hour_ts"})
 
@@ -165,7 +175,9 @@ def add_weather_features(df: pd.DataFrame, params: dict) -> pd.DataFrame:
 
 
 def build_features(params_path: str = "params.yaml") -> pd.DataFrame:
-    """Full feature engineering entry point: raw trips -> model-ready table."""
+    """Full feature engineering entry point: raw trips -> model-ready table.
+    Uses training_months / weather_hourly.csv by default — unchanged from
+    Phase 1."""
     params = load_params(params_path)
 
     trips = load_raw_trips(params)

@@ -114,3 +114,116 @@ serving:
     base_url: "http://127.0.0.1:8000"
     delay_seconds_per_hour: 0
     progress_log_every_n_hours: 24 
+
+monitoring:
+  reference_snapshot_path: "data/reference/reference_snapshot_current.json"
+  prediction_correlation_baseline_path: "data/reference/prediction_correlation_baseline.json"
+ 
+  inputs:
+    predictions_dir: "data/predictions"          # partitioned date=*/*.parquet
+    sqlite_path: "data/serving/demand_history.db" # for actuals join
+ 
+  outputs:
+    metrics_timeseries_path: "data/monitoring/metrics_timeseries.parquet"
+    alerts_log_path: "data/monitoring/alerts_log.jsonl"
+    bias_state_path: "data/monitoring/zone_bias_consecutive_state.json"  # persists consecutive-breach
+                                                                          # counts between separate
+                                                                          # scheduled-job invocations
+                                                                          # (backtest keeps this in-memory
+                                                                          # instead, since it's one process)
+ 
+  cadence:
+    granularity_hours: 1          # hourly, per your decision — finer TTD resolution
+ 
+  windows:
+    drift_window_hours: 720       # widened again from 168h to 720h (30 days). 168h fixed
+                                   # day_of_week (needs 1 full weekly cycle) but temperature/
+                                   # windspeed are temporally autocorrelated continuous features --
+                                   # any short window only covers a narrow local slice of the
+                                   # reference's full annual range, inflating PSI regardless of
+                                   # real drift (confirmed via backtest: PSI stayed elevated in
+                                   # EVERY month, not rising toward winter -- ruling out real
+                                   # seasonal mismatch as the explanation). 720h helps but likely
+                                   # won't fully resolve this for weather -- see
+                                   # psi_alert_threshold_overrides below.
+    rmse_windows_hours:
+      - 24
+      - 168     # 7d
+      - 720     # 30d
+    correlation_baseline_window_hours: 720   # first 30 days of production, used once to seed baseline
+ 
+  drift_thresholds:
+    psi_top_n_features: 10        # PSI computed only on these; list below
+    psi_features:
+      - "lag_1h"
+      - "lag_24h"
+      - "lag_168h"
+      - "rolling_mean_3h"
+      - "rolling_mean_24h"
+      - "temperature_2m"
+      - "precipitation"
+      - "windspeed_10m"
+      - "hour_of_day"
+      - "zone_id"
+    psi_alert_threshold: 0.25
+    psi_trigger_exempt:                 # NEW: still computed & logged (visible in
+                                         # metrics_timeseries.parquet for Grafana), but
+                                         # excluded from deciding drift_breached.
+      - "temperature_2m"
+      - "windspeed_10m"
+      # Three rounds of backtest evidence (24h->168h->720h window,
+      # 0.25->1.5 threshold) showed these two features' PSI stays
+      # persistently elevated with NO time trend across all 6 months --
+      # the signature of a structural PSI limitation on temporally-
+      # autocorrelated continuous features vs. a full-period reference,
+      # not real drift. KNOWN LIMITATION / documented technical debt: the
+      # correct fix is a seasonally-stratified reference (per-calendar-
+      # month baselines). Out of scope for this phase.
+    psi_alert_threshold_overrides: {}   # no longer needed now that these two are trigger-exempt;
+                                         # left as an empty, working mechanism in case a future
+                                         # feature needs a per-feature threshold instead of a
+                                         # full exemption.
+    label_kl_alert_threshold: 0.15
+    spearman_drop_pct_threshold: 0.30
+    null_rate_multiplier_threshold: 2.0
+    histogram_n_bins: 20          # used only if reference snapshot lacks pre-built bin edges for a feature
+ 
+  performance_thresholds:
+    zone_bias_pct_threshold: 0.25
+    zone_bias_consecutive_hours: 3
+    calibration_error_threshold: 0.10
+    prediction_variance_multiplier: 2.0
+ 
+  retrain_trigger:
+    # Two-stage: BOTH must be true in the same evaluation to fire.
+    # Phase 3 only logs/flags this trigger — Phase 4 consumes it.
+    require_drift_breach: true
+    require_performance_degradation: true
+ 
+# ---------------------------------------------------------------------------
+# PHASE 4 — merge this as a second new top-level key, alongside `monitoring:`
+#
+# Deliberately small: mlflow_tracking_uri/model_name/champion_alias and the
+# LightGBM hyperparameters are NOT duplicated here. They're read directly
+# from your EXISTING params["mlflow"] and params["model"]["params"] /
+# params["model"]["early_stopping_rounds"] sections at runtime -- the same
+# ones train.py already reads -- so there is exactly one source of truth
+# for training config, not two that could silently drift apart.
+# ---------------------------------------------------------------------------
+retraining:
+  lookback_days: 30
+  holdout_days: 5                          # last N days of the lookback window held out for
+                                            # champion-challenger comparison (time-based, not random)
+  min_improvement_pct: 0.05                # challenger must beat champion RMSE by >5% to promote
+  cooldown_days: 7                         # minimum gap after an actual PROMOTION, even if
+                                            # trigger keeps firing every hour after it
+  failed_attempt_cooldown_days: 1          # minimum gap after a FAILED (non-promoting) attempt --
+                                            # separate, shorter cooldown. Added after a real backtest
+                                            # showed 683 retrain attempts / 0 promotions with NO
+                                            # cooldown between them (last_retrain_as_of only updated
+                                            # on promotion) -- 683 wasted LightGBM training runs in a
+                                            # single 6-week window. This stops that: once a challenger
+                                            # fails to beat the champion, wait at least this long
+                                            # before trying again, even if the trigger stays hot.
+  outputs:
+    retrain_events_path: "data/monitoring/retrain_events.jsonl"
