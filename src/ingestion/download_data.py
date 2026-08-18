@@ -113,22 +113,21 @@ def download_zone_lookup(params: dict) -> Path:
     return dest
 
 
-def download_weather(params: dict) -> Path:
+def download_weather(params: dict, months: list[str] | None = None, dest_filename: str = "weather_hourly.csv") -> Path:
     """
-    Download NYC-wide hourly weather covering the full span of configured
-    training months via the Open-Meteo archive API (no API key required).
+    Download NYC-wide hourly weather covering the given months (defaults to
+    training_months) via the Open-Meteo archive API.
     """
-    months = sorted(params["data"]["training_months"])
+    months = sorted(months or params["data"]["training_months"])
     start_date = f"{months[0]}-01"
-    # End date = last day of the last configured month (approx via +1 month, -1 day)
     last_month = pd.Period(months[-1], freq="M")
     end_date = last_month.end_time.strftime("%Y-%m-%d")
 
     weather_cfg = params["data"]["weather"]
-    dest = Path(params["data"]["raw_dir"]) / "weather_hourly.csv"
+    dest = Path(params["data"]["raw_dir"]) / dest_filename
 
     if dest.exists():
-        logger.info("Already have weather data, skipping download.")
+        logger.info("Already have %s, skipping download.", dest)
         return dest
 
     resp = requests.get(
@@ -155,17 +154,19 @@ def download_weather(params: dict) -> Path:
     return dest
 
 
-def run_ingestion(params_path: str = "params.yaml") -> None:
-    """Entry point: download all Phase 1 raw data sources."""
+def run_ingestion(params_path: str = "params.yaml", months: list[str] | None = None, weather_dest_filename: str = "weather_hourly.csv") -> None:
+    """Entry point: download raw data for the given months (defaults to training_months)."""
     params = load_params(params_path)
+    target_months = months or params["data"]["training_months"]
 
-    for month in params["data"]["training_months"]:
+    for month in target_months:
         download_trip_month(month, params)
 
     download_zone_lookup(params)
-    download_weather(params)
+    download_weather(params, months=target_months, dest_filename=weather_dest_filename)
 
-    logger.info("Ingestion complete.")
+    logger.info("Ingestion complete for months: %s", target_months)
+
 
 
 if __name__ == "__main__":

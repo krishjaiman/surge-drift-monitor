@@ -21,3 +21,12 @@ data/reference/*.json
 mlflow-artifacts/
 data/serving/
 data/predictions/
+# Docker/Prometheus generated artifacts
+docker/prometheus/data/
+docker/prometheus/backfill.openmetrics
+
+# Run logs / transcripts
+*.log
+
+# Grafana volume (if ever run outside Docker's own volume mgmt)
+docker/grafana/data/

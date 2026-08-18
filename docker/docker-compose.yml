@@ -1,0 +1,52 @@
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: surge_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # Same directory the one-off backfill step writes TSDB blocks into
+      # (see docker/README.md). Prometheus reads whatever blocks already
+      # exist here on startup, then appends new scrapes going forward --
+      # backfilled history and live data end up on one continuous
+      # timeline, no separate merge step needed.
+      - ./prometheus/data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    restart: unless-stopped
+
+  exporter:
+    build: ./exporter
+    container_name: surge_exporter
+    ports:
+      - "8000:8000"
+    volumes:
+      # Read-only: the exporter only ever reads the staging layer that
+      # Phase 3/4 Python code (running on the host, outside Docker) writes.
+      - ../data/monitoring:/data/monitoring:ro
+    environment:
+      - METRICS_PARQUET_PATH=/data/monitoring/metrics_timeseries.parquet
+      - ALERTS_JSONL_PATH=/data/monitoring/alerts_log.jsonl
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: surge_grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-storage:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  grafana-storage:

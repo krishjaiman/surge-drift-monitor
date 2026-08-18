@@ -1,0 +1,143 @@
+{
+  "title": "Surge-Price Drift Monitor",
+  "uid": "surge-drift-monitor",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "2024-07-01T00:00:00Z",
+    "to": "2024-12-31T23:59:59Z"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "PSI by Feature (alert threshold: 0.25, temp/wind exempt from trigger)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "line", "lineWidth": 1 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "surge_psi",
+          "legendFormat": "{{feature}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "RMSE by Rolling Window",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "surge_rmse",
+          "legendFormat": "{{window}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Zones with Active Alerts",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "surge_zones_with_bias_alert",
+          "legendFormat": "Bias alerts",
+          "refId": "A"
+        },
+        {
+          "expr": "surge_zones_with_calibration_alert",
+          "legendFormat": "Calibration alerts",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "System-Level Alert Flags (0/1)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "stepped": true }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "surge_drift_breached",
+          "legendFormat": "Drift breached",
+          "refId": "A"
+        },
+        {
+          "expr": "surge_performance_degraded",
+          "legendFormat": "Performance degraded",
+          "refId": "B"
+        },
+        {
+          "expr": "surge_retrain_trigger_fired",
+          "legendFormat": "Retrain trigger fired",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Retrain Attempts: Champion vs Challenger RMSE",
+      "description": "Each point is one retrain attempt's holdout RMSE. Challenger below champion = would-be improvement.",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "points", "pointSize": 6 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "surge_retrain_champion_rmse",
+          "legendFormat": "Champion RMSE",
+          "refId": "A"
+        },
+        {
+          "expr": "surge_retrain_challenger_rmse",
+          "legendFormat": "Challenger RMSE",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Promotions (1 = promoted, 0 = kept champion)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1,
+          "custom": { "drawStyle": "bars", "fillOpacity": 80 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "surge_retrain_promoted",
+          "legendFormat": "Promoted",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}
